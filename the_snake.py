@@ -260,10 +260,8 @@ def is_cell_free(x, y, stones, snake_positions):
     for stone in stones:
         if stone.position == (x, y):
             return False
-
-    if (x, y) in snake_positions:
-        return False
-    return True
+        
+    return (x, y) not in snake_positions
 
 
 def handle_keys(game_object):
