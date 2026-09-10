@@ -260,7 +260,6 @@ def is_cell_free(x, y, stones, snake_positions):
     for stone in stones:
         if stone.position == (x, y):
             return False
-        
     return (x, y) not in snake_positions
 
 
