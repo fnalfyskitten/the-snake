@@ -30,8 +30,7 @@ SNAKE_COLOR = (0, 255, 0)
 # Скорость движения змейки:
 SPEED = 10
 
-start_x = GRID_WIDTH // 2
-start_y = GRID_HEIGHT // 2
+SCREEN_CENTER = (GRID_WIDTH // 2, GRID_HEIGHT // 2)
 
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
@@ -41,7 +40,7 @@ pygame.display.set_caption('Змейка')
 clock = pygame.time.Clock()
 
 
-class GameObject():
+class GameObject:
     """Базовый класс для всех игровых объектов.
     Содержит общие для всех объектов атрибуты: позицию на игровом поле
     и цвет отрисовки. От этого класса наследуются Snake, Apple, Barrier
@@ -54,7 +53,6 @@ class GameObject():
 
     def draw(self):
         """Отрисовывает объект."""
-        pass
 
 
 class Apple(GameObject):
@@ -67,15 +65,15 @@ class Apple(GameObject):
         self.position = None
         self.body_color = APPLE_COLOR
 
-    def randomize_position(self, stones, snake_positions):
+    def randomize_position(self, stones, snake):
         """Перемещает яблоко в случайную свободную клетку."""
+        all_occupied = get_occupied_positions(stones, snake)
         while True:
             col = randint(0, GRID_WIDTH - 1)
             row = randint(0, GRID_HEIGHT - 1)
             self.position = (col, row)
-            if is_cell_free(col, row, stones, snake_positions):
-                self.position = (col, row)
-                return
+            if is_cell_free(col, row, all_occupied):
+                return (col, row)
 
     def draw(self):
         """Отрисовывает яблоко на экране."""
@@ -102,7 +100,7 @@ class PoisonosApple(Apple):
         self.is_visible = False
         self.timer = self.poison_interval
 
-    def update(self, stones, snake_position):
+    def update(self, stones, snake):
         """Обновляет состояние ядовитого яблока.
         Перемещает ядовитое яблоко в случайную свободную клетку.
         """
@@ -111,11 +109,11 @@ class PoisonosApple(Apple):
             if self.timer >= self.poison_interval:
                 self.is_visible = True
                 self.timer = 0
-                self.randomize_position(stones, snake_position)
+                self.randomize_position(stones, snake)
         else:
             if (
                 self.timer >= self.poison_duration
-                or self.position == snake_position[0]
+                or self.position == snake.positions[0]
             ):
                 self.is_visible = False
                 self.timer = 0
@@ -135,7 +133,7 @@ class Barrier(GameObject):
     """Класс препятствий на игровом поле."""
 
     def __init__(self):
-        super().__init__(None, None)
+        super().__init__()
         self.randomize_position()
         self.color = (128, 128, 128)
         self.hight = 40
@@ -162,21 +160,18 @@ class Snake(GameObject):
     """
 
     def __init__(self):
-        super().__init__(None, None)
-        self.positions = [(start_x, start_y)]
-        self.body_color = SNAKE_COLOR
-        self.length = 2
-        self.direction = RIGHT
-        self.next_direction = None
-        self.last = None
+        super().__init__()
+        self.reset(RIGHT)
 
-    def reset(self):
+    def reset(self, direction=None):
         """Сбрасывает змейку в начальное состояние."""
         directions = [UP, DOWN, LEFT, RIGHT]
-        self.positions = [(start_x, start_y)]
+        self.positions = [SCREEN_CENTER]
         self.body_color = SNAKE_COLOR
-        self.length = 2
-        self.direction = choice(directions)
+        self.length = 1
+        self.direction = (direction if direction
+                          is not None else choice(directions)
+                          )
         self.next_direction = None
         self.last = None
 
@@ -186,9 +181,10 @@ class Snake(GameObject):
 
     def move(self):
         """Перемещает змейку на одну клетку в текущем направлении."""
-        now_head_position = self.get_head_position()
-        new_x = (now_head_position[0] + self.direction[0]) % GRID_WIDTH
-        new_y = (now_head_position[1] + self.direction[1]) % GRID_HEIGHT
+        head_x, head_y = self.get_head_position()
+        direction_x, direction_y = self.direction
+        new_x = (head_x + direction_x) % GRID_WIDTH
+        new_y = (head_y + direction_y) % GRID_HEIGHT
         new_head_position = (new_x, new_y)
         self.positions.insert(0, new_head_position)
         self.last = self.positions[-1]
@@ -201,17 +197,18 @@ class Snake(GameObject):
             self.direction = self.next_direction
             self.next_direction = None
 
-    def eat_apple(self, apple, poison_apple, stones, snake_positions):
+    def eat_apple(self, apple, poison_apple, stones):
         """Обрабатывает поедание яблок."""
         if apple.position == self.positions[0]:
             self.length += 1
-            apple.randomize_position(stones, snake_positions)
+            apple.randomize_position(stones, self)
         elif (
             poison_apple.is_visible
             and poison_apple.position == self.positions[0]
         ):
             self.length -= 1
-            self.positions.pop()
+            if len(self.positions) > 0:
+                self.positions.pop()
         if self.length <= 0:
             self.reset()
 
@@ -255,12 +252,18 @@ class Snake(GameObject):
             pygame.draw.rect(screen, BOARD_BACKGROUND_COLOR, last_rect)
 
 
-def is_cell_free(x, y, stones, snake_positions):
-    """Проверяет, свободна ли клетка на игровом поле."""
+def get_occupied_positions(stones, snake):
+    """Собирает все занятые координаты на поле в один список."""
+    occupied = []
+    occupied.extend(snake.positions)
     for stone in stones:
-        if stone.position == (x, y):
-            return False
-    return (x, y) not in snake_positions
+        occupied.append(stone.position)
+    return occupied
+
+
+def is_cell_free(x, y, occupied_positions):
+    """Проверяет, свободна ли клетка."""
+    return (x, y) not in occupied_positions
 
 
 def handle_keys(game_object):
@@ -270,6 +273,9 @@ def handle_keys(game_object):
             pygame.quit()
             raise SystemExit
         elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                pygame.quit()
+                raise SystemExit
             if event.key == pygame.K_UP and game_object.direction != DOWN:
                 game_object.next_direction = UP
             elif event.key == pygame.K_DOWN and game_object.direction != UP:
@@ -280,27 +286,30 @@ def handle_keys(game_object):
                 game_object.next_direction = RIGHT
 
 
+def create_barriers(count):
+    """Создает список объектов Barrier заданного размера."""
+    barriers = []
+    for _ in range(count):
+        barriers.append(Barrier())
+    return barriers
+
+
 def main():
     """Запускает основной игровой цикл."""
     pygame.init()
     snake = Snake()
     apple = Apple()
     poison_apple = PoisonosApple()
-    stone1 = Barrier()
-    stone2 = Barrier()
-    stone3 = Barrier()
-    stone4 = Barrier()
-    stone5 = Barrier()
-    stones = [stone1, stone2, stone3, stone4, stone5]
-    apple.randomize_position(stones, snake.positions)
+    stones = create_barriers(5)
+    apple.randomize_position(stones, snake)
     while True:
         clock.tick(SPEED)
         screen.fill(BOARD_BACKGROUND_COLOR)
         handle_keys(snake)
         snake.move()
         snake.update_direction()
-        snake.eat_apple(apple, poison_apple, stones, snake.positions)
-        poison_apple.update(stones, snake.positions)
+        snake.eat_apple(apple, poison_apple, stones)
+        poison_apple.update(stones, snake)
         snake.crush_snake()
         snake.crush_stone(stones)
 
